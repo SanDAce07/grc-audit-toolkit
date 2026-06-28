@@ -117,6 +117,16 @@ def get_control_factor(effectiveness_str):
     return CONTROL_EFFECTIVENESS_MAP.get(normalize_str(effectiveness_str), 0.0)
 
 
+def coerce_numeric_range(series, min_val, max_val, col_name):
+    """Convert series to numeric and warn about out-of-range values."""
+    numeric = pd.to_numeric(series, errors="coerce")
+    out_of_range = numeric[(numeric.notna()) & ~numeric.between(min_val, max_val)]
+    if not out_of_range.empty:
+        print(f"   ⚠️  Warning: {len(out_of_range)} value(s) in '{col_name}' "
+              f"outside valid range [{min_val}–{max_val}]. These rows will be skipped.")
+    return numeric
+
+
 # ─────────────────────────────────────────────
 # INPUT VALIDATION
 # ─────────────────────────────────────────────
@@ -131,11 +141,7 @@ def validate_input(df):
 
     # Validate likelihood and impact are numeric 1-5
     for col in ["likelihood", "impact"]:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-        invalid = df[df[col].isna() | ~df[col].between(1, 5)]
-        if not invalid.empty:
-            print(f"   ⚠️  Warning: {len(invalid)} invalid value(s) in '{col}' "
-                  f"(must be 1–5). These rows will be skipped in scoring.")
+        df[col] = coerce_numeric_range(df[col], 1, 5, col)
 
     # Validate control effectiveness
     valid_ce = set(CONTROL_EFFECTIVENESS_MAP.keys())
@@ -144,13 +150,17 @@ def validate_input(df):
         print(f"   ⚠️  Warning: {len(invalid_ce)} invalid 'control_effectiveness' value(s). "
               f"Valid: {', '.join(valid_ce)}. Defaulting to 'none' (0%).")
 
-    # Validate mitigation_due_date
+    # Validate mitigation_due_date — count unparseable values correctly
+    raw_dates = df["mitigation_due_date"].copy()
     df["mitigation_due_date"] = pd.to_datetime(df["mitigation_due_date"], errors="coerce")
-    invalid_dates = df[df["mitigation_due_date"].isna() & df["mitigation_due_date"].notna()]
-    raw_invalid = df["mitigation_due_date"].isna().sum()
-    if raw_invalid > 0:
-        print(f"   ⚠️  Warning: {raw_invalid} missing/unparseable 'mitigation_due_date' value(s). "
-              f"Overdue checks will be skipped for these rows.")
+    unparseable = int(raw_dates.notna().sum()) - int(df["mitigation_due_date"].notna().sum())
+    missing     = int(raw_dates.isna().sum())
+    if unparseable > 0:
+        print(f"   ⚠️  Warning: {unparseable} unparseable 'mitigation_due_date' value(s) — "
+              f"overdue checks will be skipped for these rows.")
+    if missing > 0:
+        print(f"   ⚠️  Warning: {missing} missing 'mitigation_due_date' value(s) — "
+              f"overdue checks will be skipped for these rows.")
     return True
 
 
@@ -320,11 +330,32 @@ def calculate_scores(df):
 
 
 # ─────────────────────────────────────────────
+# DATE / DURATION HELPERS
+# ─────────────────────────────────────────────
+def is_overdue(due_date, status=None):
+    """Return (overdue: bool, days_overdue: int). Handles NaT safely."""
+    if pd.isna(due_date):
+        return False, 0
+    days_overdue = (datetime.today() - pd.to_datetime(due_date)).days
+    if status and normalize_str(status) in ["closed", "resolved"]:
+        return False, days_overdue
+    return days_overdue > 0, days_overdue
+
+
+def get_overdue_severity(days_overdue):
+    """Classify overdue severity by number of days past due."""
+    if days_overdue > 90:
+        return "Critical"
+    if days_overdue > 30:
+        return "High"
+    return "Medium"
+
+
+# ─────────────────────────────────────────────
 # EXCEPTION DETECTION
 # ─────────────────────────────────────────────
 def detect_exceptions(df):
     """Flag risks with governance or control gaps."""
-    today = datetime.today()
     exceptions = []
 
     for _, row in df.iterrows():
@@ -361,17 +392,15 @@ def detect_exceptions(df):
             )
 
         # 3. Overdue mitigation
-        if pd.notna(row["mitigation_due_date"]):
-            due = pd.to_datetime(row["mitigation_due_date"])
-            days_overdue = (today - due).days
-            if days_overdue > 0 and normalize_str(row["status"]) not in ["closed", "resolved"]:
-                severity = "Critical" if days_overdue > 30 else "High"
-                flag(
-                    "Overdue Mitigation", severity,
-                    f"Risk {rid} mitigation was due {due.strftime('%Y-%m-%d')} "
-                    f"({days_overdue} days ago). Status: {row['status']}.",
-                    "Escalate to risk owner and management. Update mitigation plan with revised due date and justification."
-                )
+        overdue, days_overdue = is_overdue(row["mitigation_due_date"], row["status"])
+        if overdue:
+            due_str = pd.to_datetime(row["mitigation_due_date"]).strftime("%Y-%m-%d")
+            flag(
+                "Overdue Mitigation", get_overdue_severity(days_overdue),
+                f"Risk {rid} mitigation was due {due_str} "
+                f"({days_overdue} days ago). Status: {row['status']}.",
+                "Escalate to risk owner and management. Update mitigation plan with revised due date and justification."
+            )
 
         # 4. High/Critical residual risk with weak controls
         if row["residual_score"] >= 10 and normalize_str(row["control_effectiveness"]) in ["none", "low"]:
@@ -383,15 +412,14 @@ def detect_exceptions(df):
                 "Consider additional compensating controls."
             )
 
-        # 5. Open risk past its due date for more than 90 days
-        if pd.notna(row["mitigation_due_date"]):
-            due = pd.to_datetime(row["mitigation_due_date"])
-            if (today - due).days > 90 and normalize_str(row["status"]) == "open":
-                flag(
-                    "Stale Open Risk — 90+ Days Overdue", "Critical",
-                    f"Risk {rid} has been open and overdue for over 90 days.",
-                    "Escalate to senior management. Risk must be mitigated, formally accepted, or transferred."
-                )
+        # 5. Stale open risk — 90+ days overdue
+        _, days_od = is_overdue(row["mitigation_due_date"])
+        if days_od > 90 and normalize_str(row["status"]) == "open":
+            flag(
+                "Stale Open Risk — 90+ Days Overdue", "Critical",
+                f"Risk {rid} has been open and overdue for {days_od} days.",
+                "Escalate to senior management. Risk must be mitigated, formally accepted, or transferred."
+            )
 
     return pd.DataFrame(exceptions) if exceptions else pd.DataFrame()
 
@@ -510,27 +538,37 @@ def write_heat_map_sheet(ws, df, heat_map):
         ws.cell(row=r, column=1).border    = thin
 
 
-def style_register_sheet(ws):
-    """Apply formatting to the scored risk register sheet."""
-    header_fill  = PatternFill("solid", fgColor="1F3864")
-    header_font  = Font(bold=True, color="FFFFFF", size=11)
-    center_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    left_align   = Alignment(horizontal="left",   vertical="center", wrap_text=True)
-    thin_border  = Border(
+def apply_standard_formatting(ws, col_widths=None, header_color="1F3864"):
+    """Apply consistent header and border formatting to any worksheet."""
+    header_fill = PatternFill("solid", fgColor=header_color)
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+    thin_border = Border(
         left=Side(style="thin"), right=Side(style="thin"),
         top=Side(style="thin"),  bottom=Side(style="thin")
     )
-
-    col_widths = [6, 10, 45, 20, 12, 8, 20, 8, 12, 20, 22, 14, 14, 14, 14, 14, 25]
-    for i, w in enumerate(col_widths, 1):
-        ws.column_dimensions[get_column_letter(i)].width = w
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    left   = Alignment(horizontal="left",   vertical="center", wrap_text=True)
 
     for cell in ws[1]:
         cell.fill      = header_fill
         cell.font      = header_font
-        cell.alignment = center_align
         cell.border    = thin_border
+        cell.alignment = center
     ws.row_dimensions[1].height = 30
+
+    for row in ws.iter_rows(min_row=2):
+        for cell in row:
+            cell.border    = thin_border
+            cell.alignment = left
+
+    if col_widths:
+        for i, w in enumerate(col_widths, 1):
+            ws.column_dimensions[get_column_letter(i)].width = w
+
+
+def style_register_sheet(ws):
+    """Apply formatting to the scored risk register sheet."""
+    apply_standard_formatting(ws, col_widths=[6, 10, 45, 20, 12, 8, 20, 8, 12, 20, 22, 14, 14, 14, 14, 14, 25])
 
     # Color-code residual rating column
     residual_rating_col = None
@@ -542,10 +580,6 @@ def style_register_sheet(ws):
             inherent_rating_col = i
 
     for row in ws.iter_rows(min_row=2):
-        for cell in row:
-            cell.border    = thin_border
-            cell.alignment = left_align
-
         for col_idx in [residual_rating_col, inherent_rating_col]:
             if col_idx:
                 rc = row[col_idx - 1]
@@ -650,23 +684,15 @@ def write_report(df_scored, df_exceptions, heat_map, output_path, fmt="xlsx"):
 
         # Style Exceptions
         ws_exc = wb["Exceptions"]
-        hf     = PatternFill("solid", fgColor="1F3864")
-        hfont  = Font(bold=True, color="FFFFFF", size=11)
+        apply_standard_formatting(ws_exc, col_widths=[10, 40, 16, 14, 16, 32, 12, 45, 50])
         thin   = Border(left=Side(style="thin"), right=Side(style="thin"),
                         top=Side(style="thin"), bottom=Side(style="thin"))
         center = Alignment(horizontal="center", vertical="center", wrap_text=True)
         left   = Alignment(horizontal="left",   vertical="center", wrap_text=True)
-        for cell in ws_exc[1]:
-            cell.fill = hf; cell.font = hfont; cell.alignment = center; cell.border = thin
-        exc_widths = [10, 40, 16, 14, 16, 32, 12, 45, 50]
-        for i, w in enumerate(exc_widths, 1):
-            ws_exc.column_dimensions[get_column_letter(i)].width = w
 
         # Color severity in exceptions
         sev_col = next((i for i, c in enumerate(ws_exc[1], 1) if c.value == "Severity"), None)
         for row in ws_exc.iter_rows(min_row=2):
-            for cell in row:
-                cell.border = thin; cell.alignment = left
             if sev_col:
                 sc = row[sev_col - 1]
                 color_map = {"Critical": ("C00000","FFFFFF"), "High": ("FF0000","FFFFFF"),
@@ -683,13 +709,7 @@ def write_report(df_scored, df_exceptions, heat_map, output_path, fmt="xlsx"):
 
         # Style Executive Summary
         ws_sum = wb["Executive Summary"]
-        for cell in ws_sum[1]:
-            cell.fill = hf; cell.font = hfont; cell.alignment = center; cell.border = thin
-        for row in ws_sum.iter_rows(min_row=2):
-            for cell in row:
-                cell.border = thin; cell.alignment = left
-        ws_sum.column_dimensions["A"].width = 30
-        ws_sum.column_dimensions["B"].width = 20
+        apply_standard_formatting(ws_sum, col_widths=[30, 20])
 
         # Reorder sheets
         desired_order = ["Risk Register", "Heat Map", "Exceptions", "Executive Summary"]
@@ -706,6 +726,20 @@ def write_report(df_scored, df_exceptions, heat_map, output_path, fmt="xlsx"):
 # MAIN
 # ─────────────────────────────────────────────
 def main():
+    """
+    Risk Score Calculator — Main Workflow
+    ======================================
+    1. Load risk register CSV (or run with built-in sample data)
+    2. Validate schema, data types, and value ranges
+    3. Calculate inherent score (Likelihood × Impact) for each risk
+    4. Apply control effectiveness to derive residual score
+    5. Rank and classify all risks by residual rating
+    6. Detect governance exceptions (no owner, overdue, weak controls)
+    7. Build 5×5 likelihood/impact heat map
+    8. Write formatted Excel report (or CSV) with all findings
+
+    Run with --help for full usage options.
+    """
     parser = argparse.ArgumentParser(description="Risk Score Calculator — IT Audit / GRC Tool")
     parser.add_argument("--input",  "-i", default=None,
                         help="Path to risk register CSV")
@@ -722,7 +756,15 @@ def main():
     # Load data
     if args.input:
         print(f"\n📂 Loading: {args.input}")
-        df = pd.read_csv(args.input)
+        try:
+            df = pd.read_csv(args.input)
+        except FileNotFoundError:
+            print(f"\n❌ ERROR: File not found: {args.input}")
+            print("   Check the path and try again.")
+            return
+        except Exception as e:
+            print(f"\n❌ ERROR: Could not read CSV: {e}")
+            return
         try:
             validate_input(df)
         except ValueError as e:
