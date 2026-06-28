@@ -26,6 +26,26 @@ from openpyxl.utils import get_column_letter
 import warnings
 warnings.filterwarnings("ignore")
 
+REQUIRED_COLUMNS = [
+    "user_id", "name", "email", "department", "role",
+    "system", "access_level", "last_login", "status", "mfa_enabled"
+]
+
+def validate_input(df):
+    """Check required columns exist and warn about data quality issues."""
+    missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
+    if missing:
+        raise ValueError(
+            f"Input CSV is missing required column(s): {', '.join(missing)}\n"
+            f"Required columns: {', '.join(REQUIRED_COLUMNS)}"
+        )
+    # Warn about nulls in key columns
+    for col in ["user_id", "name", "status", "system"]:
+        null_count = df[col].isna().sum()
+        if null_count > 0:
+            print(f"   ⚠️  Warning: {null_count} null value(s) in column '{col}' — these rows may be skipped.")
+    return True
+
 
 # ─────────────────────────────────────────────
 # CONFIGURATION
@@ -87,9 +107,12 @@ def analyze_access(df):
     findings = []
     today = datetime.today()
 
-    # Ensure last_login is datetime
-    df["last_login"] = pd.to_datetime(df["last_login"])
-    df["days_since_login"] = (today - df["last_login"]).dt.days
+    # Resilient last_login parsing — coerce bad values to NaT
+    df["last_login"] = pd.to_datetime(df["last_login"], errors="coerce")
+
+    # For NaT last_login, treat as maximally dormant (9999 days)
+    df["days_since_login"] = (today - df["last_login"]).dt.days.fillna(9999).astype(int)
+    df["days_since_login"] = df["days_since_login"].clip(lower=0)  # no negative values
 
     for _, row in df.iterrows():
         user_findings = []
@@ -149,7 +172,9 @@ def analyze_access(df):
             })
 
         # ── Check 5: Contractor with elevated access ──
-        if dept == "contractor" and "read/write" in access or (dept == "contractor" and "admin" in access):
+        is_contractor = dept == "contractor"
+        has_elevated  = ("read/write" in access) or ("admin" in access)
+        if is_contractor and has_elevated:
             user_findings.append({
                 "finding_type": "Contractor — Elevated Access",
                 "description": f"Contractor {row['name']} has {row['access_level']} access to {row['system']}. Contractor access should be limited and time-bound.",
@@ -324,7 +349,13 @@ def write_report(df_all, df_findings, output_path):
         if not df_findings.empty:
             df_findings.to_excel(writer, sheet_name="Findings", index=False)
         else:
-            pd.DataFrame(["No findings detected."]).to_excel(writer, sheet_name="Findings", index=False, header=False)
+            # Write empty sheet with correct headers so it looks intentional
+            empty_findings = pd.DataFrame(columns=[
+                "User ID", "Name", "Email", "Department", "Role", "System",
+                "Access Level", "Last Login", "Days Since Login", "Status",
+                "MFA Enabled", "Finding Type", "Risk Rating", "Description", "Recommendation"
+            ])
+            empty_findings.to_excel(writer, sheet_name="Findings", index=False)
         summary_data.to_excel(writer, sheet_name="Summary", index=False)
 
     style_workbook(output_path, df_all, df_findings)
@@ -335,10 +366,22 @@ def write_report(df_all, df_findings, output_path):
 # MAIN
 # ─────────────────────────────────────────────
 def main():
+    global DORMANT_DAYS, PRIVILEGED_ROLES, HIGH_RISK_SYSTEMS
     parser = argparse.ArgumentParser(description="Access Review Analyzer — IT Audit Tool")
     parser.add_argument("--input",  "-i", help="Path to user access CSV file", default=None)
     parser.add_argument("--output", "-o", help="Output Excel file path",       default="access_review_findings.xlsx")
+    parser.add_argument("--dormant-days",      type=int, default=DORMANT_DAYS,
+                        help=f"Days without login to flag as dormant (default: {DORMANT_DAYS})")
+    parser.add_argument("--privileged-roles",  default=",".join(PRIVILEGED_ROLES),
+                        help="Comma-separated privileged role keywords (overrides built-in list)")
+    parser.add_argument("--high-risk-systems", default=",".join(HIGH_RISK_SYSTEMS),
+                        help="Comma-separated high-risk system names (overrides built-in list)")
     args = parser.parse_args()
+
+    # Apply CLI overrides to globals
+    DORMANT_DAYS      = args.dormant_days
+    PRIVILEGED_ROLES  = [r.strip().lower() for r in args.privileged_roles.split(",")]
+    HIGH_RISK_SYSTEMS = [s.strip() for s in args.high_risk_systems.split(",")]
 
     print("=" * 60)
     print("  ACCESS REVIEW ANALYZER — GRC & IT Audit Toolkit")
@@ -348,6 +391,11 @@ def main():
     if args.input:
         print(f"\n📂 Loading: {args.input}")
         df = pd.read_csv(args.input)
+        try:
+            validate_input(df)
+        except ValueError as e:
+            print(f"\n❌ ERROR: {e}")
+            return
     else:
         print("\n⚠️  No input file provided. Using sample data for demo.")
         df = generate_sample_data()
