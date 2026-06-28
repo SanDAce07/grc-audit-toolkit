@@ -42,6 +42,18 @@ REQUIRED_COLUMNS = [
     "status", "is_emergency", "tested"
 ]
 
+# ─────────────────────────────────────────────
+# UTILITIES
+# ─────────────────────────────────────────────
+def normalize_str(value):
+    """Normalize string for comparison — null-safe, stripped, lowercase."""
+    if value is None:
+        return ""
+    if pd.isna(value) if not isinstance(value, str) else False:
+        return ""
+    return str(value).strip().lower()
+
+
 # AICPA sample size thresholds
 SAMPLE_THRESHOLDS = [
     (0,   24,  None),   # Test all
@@ -146,7 +158,11 @@ def generate_sample_data():
 def determine_sample_size(population, override=None):
     """Return appropriate sample size per AICPA guidance."""
     if override:
-        return min(override, population)
+        actual = min(override, population)
+        if actual < override:
+            print(f"   \u26a0\ufe0f  Sample size override ({override}) exceeds population ({population}). "
+                  f"Using {actual} instead.")
+        return actual
     for low, high, size in SAMPLE_THRESHOLDS:
         if low <= population <= high:
             return population if size is None else size
@@ -160,6 +176,10 @@ def select_sample(df, sample_size, seed):
     - Random selection from remainder to hit sample_size
     Returns (sample_df, method_description)
     """
+    if df.empty:
+        raise ValueError("Cannot sample from empty dataset.")
+    if sample_size <= 0:
+        raise ValueError("Sample size must be greater than 0.")
     emergency = df[df["is_emergency"].str.strip().str.lower() == "yes"].copy()
     normal    = df[df["is_emergency"].str.strip().str.lower() != "yes"].copy()
 
@@ -195,9 +215,16 @@ def detect_exceptions(df):
     """Scan all changes (not just sample) for automatic red flags."""
     exceptions = []
 
-    df["request_date"]        = pd.to_datetime(df["request_date"],        errors="coerce")
-    df["approval_date"]       = pd.to_datetime(df["approval_date"],        errors="coerce")
-    df["implementation_date"] = pd.to_datetime(df["implementation_date"],  errors="coerce")
+    date_cols = ["request_date", "approval_date", "implementation_date"]
+    for col in date_cols:
+        df[col] = pd.to_datetime(df[col], errors="coerce")
+        invalid = df[df[col].isna() & df[col.replace("_date","_date")].notna()] if False else \
+                  df[pd.to_datetime(df[col], errors="coerce").isna() & df[col].notna()]
+        # Re-check original raw values for invalid (non-empty but unparseable) dates
+        raw_invalid = df[df[col].isna()].shape[0]
+        if raw_invalid > 0:
+            print(f"   \u26a0\ufe0f  Warning: {raw_invalid} unparseable/missing value(s) in \'{col}\' "
+                  f"\u2014 these rows will skip date-based checks.")
 
     for _, row in df.iterrows():
         cid = row["change_id"]
@@ -213,8 +240,8 @@ def detect_exceptions(df):
                 "Recommendation": rec,
             })
 
-        # 1. Missing approval
-        if pd.isna(row["approved_by"]) or str(row["approved_by"]).strip() == "":
+        # 1. Missing approval — independent if (not elif)
+        if normalize_str(row["approved_by"]) == "":
             flag(
                 "Missing Approval",
                 "Critical",
@@ -222,8 +249,9 @@ def detect_exceptions(df):
                 "Obtain approval documentation or flag as unauthorized change. Escalate to change manager."
             )
 
-        # 2. SOD — requester is implementer
-        elif str(row["requested_by"]).strip().lower() == str(row["implemented_by"]).strip().lower():
+        # 2. SOD — requester is implementer (independent check, catches overlap with #1)
+        if normalize_str(row["requested_by"]) == normalize_str(row["implemented_by"]) \
+                and normalize_str(row["requested_by"]) != "":
             flag(
                 "SOD Violation — Requester = Implementer",
                 "High",
@@ -231,9 +259,9 @@ def detect_exceptions(df):
                 "Require independent implementation. Update SDLC policy to enforce segregation."
             )
 
-        # 3. SOD — approver is implementer
-        if str(row["approved_by"]).strip().lower() == str(row["implemented_by"]).strip().lower() \
-                and str(row["approved_by"]).strip() != "":
+        # 3. SOD — approver is implementer (independent check)
+        if normalize_str(row["approved_by"]) == normalize_str(row["implemented_by"]) \
+                and normalize_str(row["approved_by"]) != "":
             flag(
                 "SOD Violation — Approver = Implementer",
                 "High",
@@ -403,8 +431,8 @@ def style_workbook(path, has_exceptions):
     wb.save(path)
 
 
-def write_report(df_all, df_sample, df_exceptions, method, output_path):
-    """Write all sheets to formatted Excel workbook."""
+def write_report(df_all, df_sample, df_exceptions, method, output_path, fmt="xlsx"):
+    """Write all sheets to formatted Excel workbook or CSV files."""
 
     # Prepare date columns for display
     date_cols = ["request_date", "approval_date", "implementation_date"]
@@ -435,18 +463,36 @@ def write_report(df_all, df_sample, df_exceptions, method, output_path):
     ]
     df_summary = pd.DataFrame(summary_rows, columns=["Item", "Value"])
 
-    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-        df_all_display.to_excel(writer,    sheet_name="Full Change Log",  index=False)
-        df_sample_display.to_excel(writer, sheet_name="Selected Sample",  index=False)
-        if not df_exceptions.empty:
-            df_exceptions.to_excel(writer, sheet_name="Exceptions", index=False)
-        else:
-            pd.DataFrame(columns=["Change ID", "Description", "Category",
-                                   "Exception Type", "Risk Rating", "Detail", "Recommendation"]
-                         ).to_excel(writer, sheet_name="Exceptions", index=False)
-        df_summary.to_excel(writer, sheet_name="Summary", index=False)
+    empty_exc_cols = ["Change ID", "Description", "Category",
+                      "Exception Type", "Risk Rating", "Detail", "Recommendation"]
 
-    style_workbook(output_path, not df_exceptions.empty)
+    if fmt == "csv":
+        # Export as separate CSV files, one per sheet
+        base = output_path.replace(".csv", "").replace(".xlsx", "")
+        paths = {
+            "full_change_log": f"{base}_full_change_log.csv",
+            "selected_sample": f"{base}_selected_sample.csv",
+            "exceptions":      f"{base}_exceptions.csv",
+            "summary":         f"{base}_summary.csv",
+        }
+        df_all_display.to_csv(paths["full_change_log"], index=False)
+        df_sample_display.to_csv(paths["selected_sample"], index=False)
+        exc_df = df_exceptions if not df_exceptions.empty else pd.DataFrame(columns=empty_exc_cols)
+        exc_df.to_csv(paths["exceptions"], index=False)
+        df_summary.to_csv(paths["summary"], index=False)
+        print(f"   CSV files written:")
+        for label, path in paths.items():
+            print(f"   ✓ {path}")
+    else:
+        # Default: Excel workbook
+        with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+            df_all_display.to_excel(writer,    sheet_name="Full Change Log", index=False)
+            df_sample_display.to_excel(writer, sheet_name="Selected Sample", index=False)
+            exc_df = df_exceptions if not df_exceptions.empty else pd.DataFrame(columns=empty_exc_cols)
+            exc_df.to_excel(writer, sheet_name="Exceptions", index=False)
+            df_summary.to_excel(writer, sheet_name="Summary", index=False)
+        style_workbook(output_path, not df_exceptions.empty)
+
     return df_summary
 
 
@@ -463,6 +509,8 @@ def main():
                         help="Override sample size (default: AICPA-guided)")
     parser.add_argument("--seed",        "-s", type=int, default=42,
                         help="Random seed for reproducible sampling (default: 42)")
+    parser.add_argument("--format",      "-f", choices=["xlsx", "csv"], default="xlsx",
+                        help="Output format: xlsx (default) or csv (exports 4 separate CSV files)")
     args = parser.parse_args()
 
     print("=" * 60)
@@ -518,7 +566,7 @@ def main():
 
     # Write report
     print(f"\n📊 Writing report: {args.output}")
-    write_report(df, df_sample, df_exceptions, method, args.output)
+    write_report(df, df_sample, df_exceptions, method, args.output, fmt=args.format)
 
     # Console summary
     print("\n" + "=" * 60)
@@ -535,8 +583,13 @@ def main():
     else:
         print(f"\n   ✅ No exceptions detected in full population.")
 
-    print(f"\n✅ Report saved: {args.output}")
-    print(f"   Sheets: Full Change Log | Selected Sample | Exceptions | Summary")
+    if args.format == "csv":
+        base = args.output.replace(".csv", "").replace(".xlsx", "")
+        print(f"\n✅ CSV files saved with prefix: {base}_*.csv")
+        print(f"   Files: full_change_log | selected_sample | exceptions | summary")
+    else:
+        print(f"\n✅ Report saved: {args.output}")
+        print(f"   Sheets: Full Change Log | Selected Sample | Exceptions | Summary")
     print("=" * 60)
 
 
