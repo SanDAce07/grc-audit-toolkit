@@ -10,12 +10,12 @@ Purpose:
     workbook for audit analytics and workpaper support.
 
 Audit Logic:
-    Current      → Not yet due
-    1-30 Days    → Recently overdue
-    31-60 Days   → Moderate overdue exposure
-    61-90 Days   → High overdue exposure
-    91-120 Days  → Significant collection risk
-    120+ Days    → Severe aging / potential impairment
+    Current      -> Not yet due
+    1-30 Days    -> Recently overdue
+    31-60 Days   -> Moderate overdue exposure
+    61-90 Days   -> High overdue exposure
+    91-120 Days  -> Significant collection risk
+    120+ Days    -> Severe aging / potential impairment
 
 Input CSV columns (required):
     customer, invoice_number, invoice_date, due_date, balance, status
@@ -34,6 +34,7 @@ Usage:
 """
 
 import argparse
+import os
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
@@ -71,8 +72,20 @@ RISK_COLORS = {
 }
 
 
+def timestamp():
+    return datetime.now().strftime("%H:%M:%S")
+
+
+def log(message, icon=None, indent=""):
+    prefix = f"[{timestamp()}]"
+    if icon:
+        print(f"{indent}{prefix} {icon} {message}")
+    else:
+        print(f"{indent}{prefix} {message}")
+
+
 def parse_args():
-    parser = argparse.ArgumentParser(description="Aging Report Analyzer — Audit Analytics Tool")
+    parser = argparse.ArgumentParser(description="Aging Report Analyzer - Audit Analytics Tool")
     parser.add_argument("--input", "-i", default=None, help="Path to AR aging CSV file")
     parser.add_argument("--output", "-o", default="aging_report_analysis.xlsx", help="Output Excel file path")
     parser.add_argument("--as-of", default=datetime.today().strftime("%Y-%m-%d"), help="As-of date in YYYY-MM-DD format")
@@ -142,13 +155,34 @@ def validate_and_normalize_input(df):
 
     null_due_dates = normalized["due_date"].isna().sum()
     if null_due_dates > 0:
-        print(f"   Warning: {null_due_dates} row(s) have missing or invalid due dates.")
+        print(
+            f"   ⚠️  Warning: {null_due_dates} row(s) have missing or invalid due dates. "
+            f"Aging classification unavailable for these rows."
+        )
 
     invalid_balance = (normalized["balance"] == 0).sum()
     if invalid_balance > 0:
-        print(f"   Warning: {invalid_balance} row(s) have zero or unparseable balances.")
+        print(
+            f"   ⚠️  Warning: {invalid_balance} row(s) have zero or unparseable balances. "
+            f"These rows will be excluded from aging analysis."
+        )
 
     return normalized
+
+
+def validate_output_path(output_path):
+    try:
+        output_dir = os.path.dirname(output_path) or "."
+        if not os.path.exists(output_dir):
+            print(f"❌ ERROR: Output directory does not exist: {output_dir}")
+            return False
+        if not os.access(output_dir, os.W_OK):
+            print(f"❌ ERROR: Cannot write to directory: {output_dir}")
+            return False
+    except Exception as exc:
+        print(f"❌ ERROR: Invalid output path: {exc}")
+        return False
+    return True
 
 
 def generate_sample_data():
@@ -408,10 +442,18 @@ def write_report(df_aging, customer_summary, findings, summary_df, output_path, 
 
 def main():
     args = parse_args()
+
     try:
         as_of_date = datetime.strptime(args.as_of, "%Y-%m-%d")
     except ValueError:
-        print("ERROR: --as-of must use YYYY-MM-DD format.")
+        print("❌ ERROR: --as-of must use YYYY-MM-DD format (e.g., 2026-06-29).")
+        return
+
+    if args.top < 1:
+        print("❌ ERROR: --top must be a positive integer.")
+        return
+
+    if not validate_output_path(args.output):
         return
 
     print("=" * 60)
@@ -419,33 +461,62 @@ def main():
     print("=" * 60)
 
     if args.input:
-        print(f"\nLoading: {args.input}")
-        raw_df = pd.read_csv(args.input)
+        log(f"Loading: {args.input}", icon="📂")
+        try:
+            raw_df = pd.read_csv(args.input)
+        except FileNotFoundError:
+            print(f"\n❌ ERROR: File not found: {args.input}")
+            print("   Check the path and try again.")
+            return
+        except Exception as exc:
+            print(f"\n❌ ERROR: Could not read CSV: {exc}")
+            return
+
         try:
             df = validate_and_normalize_input(raw_df)
         except ValueError as exc:
-            print(f"\nERROR: {exc}")
+            print(f"\n❌ ERROR: {exc}")
             return
     else:
-        print("\nNo input file provided. Using sample data for demo.")
+        log("No input file provided. Using sample data for demo.", icon="⚠️")
         df = generate_sample_data()
 
     df = filter_open_items(df)
+    if df.empty:
+        print("\n❌ ERROR: No open receivable items found after filtering.")
+        print("   Check status values and balance amounts in your source data.")
+        return
     print(f"   {len(df)} open receivable records loaded.")
 
-    print("\nRunning aging analysis...")
-    print("   Check 1: Aging bucket classification")
-    print("   Check 2: Overdue customer concentration")
-    print("   Check 3: Missing due dates")
-    print("   Check 4: Negative balances / credits")
-    print("   Check 5: Severely aged receivables")
+    log("Running aging analysis...", icon="🔍")
+    print("   ✓ Aging bucket classification")
+    print("   ✓ Overdue customer concentration")
+    print("   ✓ Missing due dates")
+    print("   ✓ Negative balances / credits")
+    print("   ✓ Severely aged receivables")
 
     df_aging, customer_summary = analyze_aging(df, as_of_date)
     findings = detect_exceptions(df_aging)
     summary_df = build_summary(df_aging, customer_summary, findings, as_of_date)
 
-    print(f"\nWriting report: {args.output}")
-    write_report(df_aging, customer_summary, findings, summary_df, args.output, args.top)
+    if not findings.empty:
+        print(f"\n🚨 Exceptions detected: {len(findings)}")
+        for severity in ["Critical", "High", "Medium"]:
+            count = len(findings[findings["Risk Rating"] == severity])
+            if count:
+                print(f"   {severity:<12}: {count}")
+    else:
+        print("\n✅ No receivable exceptions detected.")
+
+    log(f"Writing report: {args.output}", icon="📊")
+    try:
+        write_report(df_aging, customer_summary, findings, summary_df, args.output, args.top)
+    except PermissionError:
+        print(f"\n❌ ERROR: Permission denied while writing: {args.output}")
+        return
+    except Exception as exc:
+        print(f"\n❌ ERROR: Could not write Excel report: {exc}")
+        return
 
     print("\n" + "=" * 60)
     print("  AGING ANALYSIS SUMMARY")
@@ -463,7 +534,7 @@ def main():
     else:
         print("   No receivable exceptions detected.")
 
-    print(f"\nReport saved: {args.output}")
+    print(f"\n✅ Report saved: {args.output}")
     print("   Sheets: Invoice Aging | Customer Summary | Exceptions | Executive Summary")
     print("=" * 60)
 
