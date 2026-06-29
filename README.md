@@ -17,24 +17,26 @@ grc-audit-toolkit/
 ## Audit Scripts
 
 ### Aging Report Analyzer
-`audit-scripts/aging_report_analyzer.py` analyzes accounts receivable aging exports in CSV format and summarizes balances by aging bucket for audit review.
+`audit-scripts/aging-report-analyzer.py` analyzes accounts receivable aging exports and produces a formatted Excel workpaper for audit analytics.
+
+The script includes:
+- aging buckets from `Current` through `120+`
+- customer concentration analysis
+- exception checks for missing due dates, credit balances, and severely aged receivables
+- an Excel workbook with `Invoice Aging`, `Customer Summary`, `Exceptions`, and `Executive Summary` sheets
 
 Expected columns:
 - `customer` or `customer name`
-- `invoice` or `invoice number`
-- `due date`
-- `amount` or `balance`
-- optional `status`
+- `invoice_number` or `invoice`
+- `invoice_date` or `date`
+- `due_date` or `due date`
+- `balance` or `amount`
+- `status`
 
 Example:
 ```bash
-python3 audit-scripts/aging_report_analyzer.py ar_aging.csv --as-of 2026-06-30 --top 15
+python audit-scripts/aging-report-analyzer.py --input ar_aging.csv --output aging_report.xlsx --as-of 2026-06-30 --top 15
 ```
-
-The script reports:
-- total open balance
-- balances by aging bucket
-- customers with the highest overdue exposure
 
 ## Frameworks Covered
 - COBIT 2019
