@@ -2,22 +2,25 @@
 
 A structured repository for Governance, Risk, and Compliance (GRC) and IT Audit work.
 
-## Structure
+## Project Areas
 
-```
-grc-audit-toolkit/
-├── control-frameworks/     # COBIT, SOC 2, CISA control mappings
-├── risk-register/          # Risk identification and scoring
-├── audit-evidence/         # Evidence checklists and templates
-├── compliance-checklists/  # SOC 2, ITGC, and regulatory checklists
-├── audit-scripts/          # Python/Excel scripts for audit automation
-└── reports/                # Audit report templates
-```
+- [control-frameworks](./control-frameworks) - COBIT, SOC 2, and CISA control mappings
+- [risk-register](./risk-register) - Risk identification and scoring materials
+- [audit-evidence](./audit-evidence) - Evidence checklists and templates
+- [compliance-checklists](./compliance-checklists) - SOC 2, ITGC, and regulatory checklists
+- [audit-scripts](./audit-scripts) - Python and Excel audit automation tools
+- [reports](./reports) - Audit report templates
 
 ## Audit Scripts
 
+- [Access Review Analyzer](./audit-scripts/access-review-analyzer.py) - Flags user access anomalies for IT audit testing
+- [Change Log Sampler](./audit-scripts/change-log-sampler.py) - Selects change samples and pre-flags exceptions
+- [Risk Score Calculator](./audit-scripts/risk-score-calculator.py) - Calculates inherent and residual risk scores
+- [Aging Report Analyzer](./audit-scripts/aging-report-analyzer.py) - Produces an AR aging workpaper and exception summary
+- [Audit Scripts Overview](./audit-scripts/README.md) - Landing page for the full script catalog
+
 ### Aging Report Analyzer
-`audit-scripts/aging-report-analyzer.py` analyzes accounts receivable aging exports and produces a formatted Excel workpaper for audit analytics.
+[Open the script](./audit-scripts/aging-report-analyzer.py)
 
 The script includes:
 - aging buckets from `Current` through `120+`
