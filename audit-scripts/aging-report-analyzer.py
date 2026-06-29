@@ -90,6 +90,8 @@ def parse_args():
     parser.add_argument("--output", "-o", default="aging_report_analysis.xlsx", help="Output Excel file path")
     parser.add_argument("--as-of", default=datetime.today().strftime("%Y-%m-%d"), help="As-of date in YYYY-MM-DD format")
     parser.add_argument("--top", type=int, default=10, help="Top customers by overdue exposure to display")
+    parser.add_argument("--format", "-f", choices=["xlsx", "csv"], default="xlsx",
+                        help="Output format: xlsx (default) or csv (exports 4 separate CSV files)")
     return parser.parse_args()
 
 
@@ -209,8 +211,11 @@ def generate_sample_data():
 def filter_open_items(df):
     working = df.copy()
     working["status"] = working["status"].fillna("").astype(str).str.strip().str.lower()
+    # Step 1: Remove explicitly closed items
     working = working[~working["status"].isin(STATUS_CLOSED_VALUES)]
-    working = working[(working["status"].isin(STATUS_OPEN_VALUES)) | (working["status"] != "")]
+    # Step 2: Keep only recognized open statuses (fixes bug — previously kept ANY non-empty status)
+    working = working[working["status"].isin(STATUS_OPEN_VALUES)]
+    # Step 3: Exclude zero balances
     working = working[working["balance"] != 0].copy()
     return working
 
@@ -343,10 +348,46 @@ def build_summary(df, customer_summary, findings, as_of_date):
         ("Unknown", round(bucket_totals.get("Unknown", 0.0), 2)),
         ("High / Critical Findings", len(findings[findings["Risk Rating"].isin(["High", "Critical"])])),
         ("Top Customer by Overdue Exposure", customer_summary.iloc[0]["customer"] if not customer_summary.empty else ""),
+        ("Note", "Customer Summary shows ALL customers ranked by overdue exposure"),
         ("Prepared By", ""),
         ("Reviewed By", ""),
     ]
     return pd.DataFrame(summary_rows, columns=["Metric", "Value"])
+
+
+def detect_concentration_risk(df_aging, customer_summary, threshold_pct=20.0):
+    """Flag customers whose overdue balance exceeds threshold_pct of total AR."""
+    findings = []
+    total_balance = df_aging["balance"].sum()
+    if total_balance <= 0:
+        return pd.DataFrame()
+
+    for _, row in customer_summary.iterrows():
+        if row["overdue_balance"] <= 0:
+            continue
+        pct = (row["overdue_balance"] / total_balance) * 100
+        if pct >= threshold_pct:
+            findings.append({
+                "Customer":       row["customer"],
+                "Invoice Number": "— (Customer Level)",
+                "Balance":        round(row["overdue_balance"], 2),
+                "Days Past Due":  row["max_days_past_due"],
+                "Aging Bucket":   "Multiple",
+                "Finding Type":   "Concentration Risk — High Overdue Exposure",
+                "Risk Rating":    "Critical" if pct >= 35 else "High",
+                "Detail": (
+                    f"{row['customer']} represents {pct:.1f}% of total AR "
+                    f"(${row['overdue_balance']:,.2f} overdue of ${total_balance:,.2f} total). "
+                    f"Threshold: {threshold_pct:.0f}%."
+                ),
+                "Recommendation": (
+                    "Assess collectability risk and customer credit exposure. "
+                    "Review collection correspondence and evaluate whether additional "
+                    "allowance for doubtful accounts is warranted. Consider credit limit review."
+                ),
+            })
+
+    return pd.DataFrame(findings) if findings else pd.DataFrame()
 
 
 def style_workbook(path):
@@ -416,8 +457,9 @@ def style_workbook(path):
     wb.save(path)
 
 
-def write_report(df_aging, customer_summary, findings, summary_df, output_path, top_n):
-    customer_output = customer_summary.head(top_n).copy()
+def write_report(df_aging, customer_summary, findings, summary_df, output_path, top_n, fmt="xlsx"):
+    # Full customer list — not truncated to top_n (top_n noted in summary only)
+    customer_output = customer_summary.copy()
 
     invoice_output = df_aging[[
         "customer", "invoice_number", "invoice_date", "due_date", "balance",
@@ -431,13 +473,28 @@ def write_report(df_aging, customer_summary, findings, summary_df, output_path, 
         "1-30", "31-60", "61-90", "91-120", "120+", "Unknown"
     ]]
 
-    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-        invoice_output.to_excel(writer, sheet_name="Invoice Aging", index=False)
-        customer_output.to_excel(writer, sheet_name="Customer Summary", index=False)
-        findings.to_excel(writer, sheet_name="Exceptions", index=False)
-        summary_df.to_excel(writer, sheet_name="Executive Summary", index=False)
-
-    style_workbook(output_path)
+    if fmt == "csv":
+        base = output_path.replace(".csv", "").replace(".xlsx", "")
+        paths = {
+            "invoice_aging":     f"{base}_invoice_aging.csv",
+            "customer_summary":  f"{base}_customer_summary.csv",
+            "exceptions":        f"{base}_exceptions.csv",
+            "executive_summary": f"{base}_executive_summary.csv",
+        }
+        invoice_output.to_csv(paths["invoice_aging"], index=False)
+        customer_output.to_csv(paths["customer_summary"], index=False)
+        findings.to_csv(paths["exceptions"], index=False)
+        summary_df.to_csv(paths["executive_summary"], index=False)
+        print("   CSV files written:")
+        for _, path in paths.items():
+            print(f"   ✓ {path}")
+    else:
+        with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+            invoice_output.to_excel(writer, sheet_name="Invoice Aging", index=False)
+            customer_output.to_excel(writer, sheet_name="Customer Summary", index=False)
+            findings.to_excel(writer, sheet_name="Exceptions", index=False)
+            summary_df.to_excel(writer, sheet_name="Executive Summary", index=False)
+        style_workbook(output_path)
 
 
 def main():
@@ -494,9 +551,16 @@ def main():
     print("   ✓ Missing due dates")
     print("   ✓ Negative balances / credits")
     print("   ✓ Severely aged receivables")
+    print("   ✓ Customer concentration risk (>20% of total AR)")
 
     df_aging, customer_summary = analyze_aging(df, as_of_date)
     findings = detect_exceptions(df_aging)
+
+    # Concentration risk — customer-level check across full AR population
+    concentration_findings = detect_concentration_risk(df_aging, customer_summary)
+    if not concentration_findings.empty:
+        findings = pd.concat([findings, concentration_findings], ignore_index=True)
+
     summary_df = build_summary(df_aging, customer_summary, findings, as_of_date)
 
     if not findings.empty:
@@ -510,7 +574,7 @@ def main():
 
     log(f"Writing report: {args.output}", icon="📊")
     try:
-        write_report(df_aging, customer_summary, findings, summary_df, args.output, args.top)
+        write_report(df_aging, customer_summary, findings, summary_df, args.output, args.top, fmt=args.format)
     except PermissionError:
         print(f"\n❌ ERROR: Permission denied while writing: {args.output}")
         return
@@ -534,8 +598,13 @@ def main():
     else:
         print("   No receivable exceptions detected.")
 
-    print(f"\n✅ Report saved: {args.output}")
-    print("   Sheets: Invoice Aging | Customer Summary | Exceptions | Executive Summary")
+    if args.format == "csv":
+        base = args.output.replace(".csv", "").replace(".xlsx", "")
+        print(f"\n✅ CSV files saved: {base}_*.csv")
+        print("   Files: invoice_aging | customer_summary | exceptions | executive_summary")
+    else:
+        print(f"\n✅ Report saved: {args.output}")
+        print("   Sheets: Invoice Aging | Customer Summary | Exceptions | Executive Summary")
     print("=" * 60)
 
 
