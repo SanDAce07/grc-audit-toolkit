@@ -322,9 +322,16 @@ def detect_exceptions(df):
 # ─────────────────────────────────────────────
 # ADD WORKPAPER COLUMNS TO SAMPLE
 # ─────────────────────────────────────────────
-def add_workpaper_columns(sample_df, exception_ids):
-    """Add audit testing columns to the sample for manual completion."""
+def add_workpaper_columns(sample_df, df_exceptions):
+    """Add audit testing columns without treating unrelated flags as missing approval."""
     wp = sample_df.copy()
+
+    exception_ids = set(df_exceptions["Change ID"].tolist()) if not df_exceptions.empty else set()
+    missing_approval_ids = set(
+        df_exceptions.loc[
+            df_exceptions["Exception Type"] == "Missing Approval", "Change ID"
+        ].tolist()
+    ) if not df_exceptions.empty else set()
 
     # Pre-populate exception column based on auto-detection
     def get_exception_note(cid):
@@ -332,8 +339,11 @@ def add_workpaper_columns(sample_df, exception_ids):
             return "⚠️ See Exceptions Sheet"
         return ""
 
-    wp["Approval Documented?"]    = wp["change_id"].apply(
-        lambda x: "No ⚠️" if x in exception_ids else "")
+    wp["Approval Documented?"]    = wp.apply(
+        lambda row: "No ⚠️" if row["change_id"] in missing_approval_ids
+        else ("Yes" if normalize_str(row["approved_by"]) else ""),
+        axis=1,
+    )
     wp["Testing Evidence?"]       = ""
     wp["SOD Verified?"]           = ""
     wp["Impl. Date Matches?"]     = ""
@@ -383,7 +393,8 @@ def style_workbook(path, has_exceptions):
 
     sheet_configs = {
         "Full Change Log": [12, 40, 14, 16, 16, 16, 14, 14, 18, 12, 14, 10],
-        "Selected Sample": [8, 12, 40, 14, 16, 16, 16, 14, 14, 18, 12, 14, 10, 22, 20, 18, 18, 35, 20, 16, 14],
+        "Selected Sample": [8, 12, 40, 14, 14, 22, 20, 18, 18, 18, 35, 20, 16, 14],
+        "Sample Evidence": [8, 12, 16, 16, 16, 14, 14, 18, 12, 10],
         "Exceptions":      [12, 40, 14, 32, 12, 45, 50],
         "Summary":         [40, 20],
     }
@@ -396,6 +407,16 @@ def style_workbook(path, has_exceptions):
         ws.freeze_panes = "A2"
         if ws.dimensions != "A1:A1":
             ws.auto_filter.ref = ws.dimensions
+
+    if "Selected Sample" in wb.sheetnames:
+        ws_samp = wb["Selected Sample"]
+        ws_samp.freeze_panes = "C2"
+        ws_samp.sheet_view.zoomScale = 85
+        ws_samp.sheet_properties.pageSetUpPr.fitToPage = True
+        ws_samp.page_setup.orientation = "landscape"
+        ws_samp.page_setup.fitToWidth = 1
+        ws_samp.page_setup.fitToHeight = 0
+        ws_samp.print_title_rows = "1:1"
 
     # Color-code risk ratings in Exceptions sheet
     if "Exceptions" in wb.sheetnames and has_exceptions:
@@ -446,6 +467,19 @@ def write_report(df_all, df_sample, df_exceptions, method, output_path, fmt="xls
     df_all_display    = fmt_dates(df_all)
     df_sample_display = fmt_dates(df_sample)
 
+    workpaper_columns = [
+        "sample_number", "change_id", "description", "category", "is_emergency",
+        "selection_method", "Approval Documented?", "Testing Evidence?",
+        "SOD Verified?", "Impl. Date Matches?", "Auditor Notes",
+        "Workpaper Conclusion", "Auditor Initials", "Review Date",
+    ]
+    evidence_columns = [
+        "sample_number", "change_id", "requested_by", "approved_by", "implemented_by",
+        "request_date", "approval_date", "implementation_date", "status", "tested",
+    ]
+    df_sample_workpaper = df_sample_display[workpaper_columns]
+    df_sample_evidence = df_sample_display[evidence_columns]
+
     # Summary data
     summary_rows = [
         ("Audit Period",              "Full CSV range"),
@@ -472,11 +506,13 @@ def write_report(df_all, df_sample, df_exceptions, method, output_path, fmt="xls
         paths = {
             "full_change_log": f"{base}_full_change_log.csv",
             "selected_sample": f"{base}_selected_sample.csv",
+            "sample_evidence": f"{base}_sample_evidence.csv",
             "exceptions":      f"{base}_exceptions.csv",
             "summary":         f"{base}_summary.csv",
         }
         df_all_display.to_csv(paths["full_change_log"], index=False)
-        df_sample_display.to_csv(paths["selected_sample"], index=False)
+        df_sample_workpaper.to_csv(paths["selected_sample"], index=False)
+        df_sample_evidence.to_csv(paths["sample_evidence"], index=False)
         exc_df = df_exceptions if not df_exceptions.empty else pd.DataFrame(columns=empty_exc_cols)
         exc_df.to_csv(paths["exceptions"], index=False)
         df_summary.to_csv(paths["summary"], index=False)
@@ -487,7 +523,8 @@ def write_report(df_all, df_sample, df_exceptions, method, output_path, fmt="xls
         # Default: Excel workbook
         with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
             df_all_display.to_excel(writer,    sheet_name="Full Change Log", index=False)
-            df_sample_display.to_excel(writer, sheet_name="Selected Sample", index=False)
+            df_sample_workpaper.to_excel(writer, sheet_name="Selected Sample", index=False)
+            df_sample_evidence.to_excel(writer, sheet_name="Sample Evidence", index=False)
             exc_df = df_exceptions if not df_exceptions.empty else pd.DataFrame(columns=empty_exc_cols)
             exc_df.to_excel(writer, sheet_name="Exceptions", index=False)
             df_summary.to_excel(writer, sheet_name="Summary", index=False)
@@ -510,7 +547,7 @@ def main():
     parser.add_argument("--seed",        "-s", type=int, default=42,
                         help="Random seed for reproducible sampling (default: 42)")
     parser.add_argument("--format",      "-f", choices=["xlsx", "csv"], default="xlsx",
-                        help="Output format: xlsx (default) or csv (exports 4 separate CSV files)")
+                        help="Output format: xlsx (default) or csv (exports 5 separate CSV files)")
     args = parser.parse_args()
 
     print("=" * 60)
@@ -547,7 +584,6 @@ def main():
     # Detect exceptions across full population
     print(f"\n🔍 Scanning full population for exceptions...")
     df_exceptions = detect_exceptions(df)
-    exception_ids = set(df_exceptions["Change ID"].tolist()) if not df_exceptions.empty else set()
 
     checks = [
         "Missing approval",
@@ -562,7 +598,7 @@ def main():
         print(f"   ✓ {c}")
 
     # Add workpaper columns
-    df_sample = add_workpaper_columns(df_sample, exception_ids)
+    df_sample = add_workpaper_columns(df_sample, df_exceptions)
 
     # Write report
     print(f"\n📊 Writing report: {args.output}")
@@ -586,10 +622,10 @@ def main():
     if args.format == "csv":
         base = args.output.replace(".csv", "").replace(".xlsx", "")
         print(f"\n✅ CSV files saved with prefix: {base}_*.csv")
-        print(f"   Files: full_change_log | selected_sample | exceptions | summary")
+        print(f"   Files: full_change_log | selected_sample | sample_evidence | exceptions | summary")
     else:
         print(f"\n✅ Report saved: {args.output}")
-        print(f"   Sheets: Full Change Log | Selected Sample | Exceptions | Summary")
+        print(f"   Sheets: Full Change Log | Selected Sample | Sample Evidence | Exceptions | Summary")
     print("=" * 60)
 
 

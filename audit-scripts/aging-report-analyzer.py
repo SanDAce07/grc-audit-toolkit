@@ -246,7 +246,10 @@ def analyze_aging(df, as_of_date):
         .agg(
             invoice_count=("invoice_number", "count"),
             total_balance=("balance", "sum"),
-            overdue_balance=("balance", lambda s: s[working.loc[s.index, "is_overdue"]].sum()),
+            overdue_balance=(
+                "balance",
+                lambda s: s[working.loc[s.index, "is_overdue"] & (s > 0)].sum(),
+            ),
             max_days_past_due=("days_past_due", "max"),
         )
         .reset_index()
@@ -331,14 +334,16 @@ def detect_exceptions(df):
 def build_summary(df, customer_summary, findings, as_of_date):
     bucket_totals = df.groupby("aging_bucket")["balance"].sum().to_dict()
     total_open_balance = df["balance"].sum()
-    overdue_balance = df[df["is_overdue"]]["balance"].sum()
+    positive_exposure = df.loc[df["balance"] > 0, "balance"].sum()
+    overdue_balance = df.loc[df["is_overdue"] & (df["balance"] > 0), "balance"].sum()
 
     summary_rows = [
         ("As-of Date", as_of_date.strftime("%Y-%m-%d")),
         ("Open Invoices", len(df)),
         ("Customers", df["customer"].nunique()),
         ("Total Open Balance", round(total_open_balance, 2)),
-        ("Total Overdue Balance", round(overdue_balance, 2)),
+        ("Positive Receivable Exposure", round(positive_exposure, 2)),
+        ("Total Overdue Positive Balance", round(overdue_balance, 2)),
         ("Current", round(bucket_totals.get("Current", 0.0), 2)),
         ("1-30", round(bucket_totals.get("1-30", 0.0), 2)),
         ("31-60", round(bucket_totals.get("31-60", 0.0), 2)),
@@ -356,9 +361,9 @@ def build_summary(df, customer_summary, findings, as_of_date):
 
 
 def detect_concentration_risk(df_aging, customer_summary, threshold_pct=20.0):
-    """Flag customers whose overdue balance exceeds threshold_pct of total AR."""
+    """Flag overdue concentration against positive receivable exposure."""
     findings = []
-    total_balance = df_aging["balance"].sum()
+    total_balance = df_aging.loc[df_aging["balance"] > 0, "balance"].sum()
     if total_balance <= 0:
         return pd.DataFrame()
 
@@ -376,8 +381,8 @@ def detect_concentration_risk(df_aging, customer_summary, threshold_pct=20.0):
                 "Finding Type":   "Concentration Risk — High Overdue Exposure",
                 "Risk Rating":    "Critical" if pct >= 35 else "High",
                 "Detail": (
-                    f"{row['customer']} represents {pct:.1f}% of total AR "
-                    f"(${row['overdue_balance']:,.2f} overdue of ${total_balance:,.2f} total). "
+                    f"{row['customer']} represents {pct:.1f}% of positive AR "
+                    f"(${row['overdue_balance']:,.2f} overdue of ${total_balance:,.2f} positive exposure). "
                     f"Threshold: {threshold_pct:.0f}%."
                 ),
                 "Recommendation": (
@@ -587,8 +592,9 @@ def main():
     print("=" * 60)
     print(f"   Open Invoices     : {len(df_aging)}")
     print(f"   Customers         : {df_aging['customer'].nunique()}")
-    print(f"   Total AR Balance  : ${df_aging['balance'].sum():,.2f}")
-    print(f"   Overdue Balance   : ${df_aging[df_aging['is_overdue']]['balance'].sum():,.2f}")
+    print(f"   Net AR Balance      : ${df_aging['balance'].sum():,.2f}")
+    print(f"   Positive Exposure   : ${df_aging.loc[df_aging['balance'] > 0, 'balance'].sum():,.2f}")
+    print(f"   Overdue Positive AR : ${df_aging.loc[df_aging['is_overdue'] & (df_aging['balance'] > 0), 'balance'].sum():,.2f}")
     if not findings.empty:
         print(f"   Exceptions Found  : {len(findings)}")
         for risk in ["Critical", "High", "Medium", "Low"]:

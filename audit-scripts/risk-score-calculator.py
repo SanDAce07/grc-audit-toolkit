@@ -467,7 +467,7 @@ def write_heat_map_sheet(ws, df, heat_map):
 
     # Title
     ws.merge_cells("A1:G1")
-    ws["A1"] = "IT RISK HEAT MAP — Likelihood vs. Impact"
+    ws["A1"] = "INHERENT IT RISK HEAT MAP — Likelihood × Impact"
     ws["A1"].font      = Font(bold=True, size=14, color="1F3864")
     ws["A1"].alignment = center
 
@@ -616,10 +616,10 @@ def write_report(df_scored, df_exceptions, heat_map, output_path, fmt="xlsx"):
     summary_rows = [
         ("Report Date",              today.strftime("%Y-%m-%d")),
         ("Total Risks",              total),
-        ("Critical (Score 20–25)",   critical),
-        ("High (Score 10–19)",       high),
-        ("Medium (Score 5–9)",       medium),
-        ("Low (Score 1–4)",          low),
+        ("Residual Critical (Score 20–25)", critical),
+        ("Residual High (Score 10–19)",     high),
+        ("Residual Medium (Score 5–9)",     medium),
+        ("Residual Low (Score 1–4)",        low),
         ("Risks with No Controls",   no_controls),
         ("Risks with No Owner",      no_owner),
         ("Overdue Mitigations",      overdue),
