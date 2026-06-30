@@ -2,7 +2,7 @@
 Access Review Analyzer
 ======================
 IT Audit Tool — GRC Toolkit
-Author: Sandesh | ULM Accounting & CIS
+Author: Sandesh Lama Tamang | ULM Accounting & CIS
 
 Purpose:
     Analyzes a user access export CSV and flags access control anomalies.

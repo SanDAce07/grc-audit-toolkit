@@ -2,18 +2,23 @@
 Change Log Sampler
 ==================
 IT Audit Tool — GRC Toolkit
-Author: Sandesh | ULM Accounting & CIS
+Author: Sandesh Lama Tamang | ULM Accounting & CIS
 
 Purpose:
-    Ingests a change management log CSV, selects a statistically appropriate
-    audit sample per AICPA/PCAOB guidance, pre-flags exceptions, and outputs
+    Ingests a change management log CSV, applies an illustrative risk-based
+    portfolio sampling rule, pre-flags exceptions, and outputs
     a formatted Excel workpaper ready for audit testing.
 
-Sampling Logic (AICPA guidance):
+Illustrative default logic (not an auditing-standard sample-size table):
     Population 1–24    → Test all
     Population 25–99   → Sample 25
     Population 100+    → Sample 40
-    Emergency changes  → Always include all (100% testing)
+    Emergency changes  → Include all as targeted selections for this scenario
+
+    Professional engagements should determine sample size from the governing
+    methodology, control frequency, tolerable and expected deviation, sampling
+    risk, population characteristics, and auditor judgment. Use --sample-size
+    to supply that documented engagement-specific decision.
 
 Input CSV columns (required):
     change_id, description, category, requested_by, approved_by,
@@ -54,7 +59,7 @@ def normalize_str(value):
     return str(value).strip().lower()
 
 
-# AICPA sample size thresholds
+# Illustrative portfolio defaults only; not an AICPA/PCAOB sample-size table.
 SAMPLE_THRESHOLDS = [
     (0,   24,  None),   # Test all
     (25,  99,  25),     # Sample 25
@@ -156,7 +161,7 @@ def generate_sample_data():
 # SAMPLING ENGINE
 # ─────────────────────────────────────────────
 def determine_sample_size(population, override=None):
-    """Return appropriate sample size per AICPA guidance."""
+    """Return the explicit override or the documented portfolio-demo default."""
     if override:
         actual = min(override, population)
         if actual < override:
@@ -172,7 +177,7 @@ def determine_sample_size(population, override=None):
 def select_sample(df, sample_size, seed):
     """
     Select audit sample:
-    - All emergency changes (mandatory 100% testing)
+    - All emergency changes (targeted selections for this scenario)
     - Random selection from remainder to hit sample_size
     Returns (sample_df, method_description)
     """
@@ -183,7 +188,7 @@ def select_sample(df, sample_size, seed):
     emergency = df[df["is_emergency"].str.strip().str.lower() == "yes"].copy()
     normal    = df[df["is_emergency"].str.strip().str.lower() != "yes"].copy()
 
-    emergency["selection_method"] = "Mandatory — Emergency Change"
+    emergency["selection_method"] = "Targeted — Emergency Change"
     selected_normal = pd.DataFrame()
 
     remaining_needed = max(0, sample_size - len(emergency))
@@ -198,10 +203,10 @@ def select_sample(df, sample_size, seed):
     sample["sample_number"] = range(1, len(sample) + 1)
 
     method = (
-        f"AICPA-guided random sampling | "
+        f"Illustrative risk-based sampling | "
         f"Population: {len(df)} | "
         f"Sample Size: {sample_size} | "
-        f"Emergency (mandatory): {len(emergency)} | "
+        f"Emergency (targeted): {len(emergency)} | "
         f"Random: {len(selected_normal)} | "
         f"Random seed: {seed}"
     )
@@ -487,7 +492,7 @@ def write_report(df_all, df_sample, df_exceptions, method, output_path, fmt="xls
         ("Emergency Changes",         len(df_all[df_all["is_emergency"].str.strip().str.lower() == "yes"])),
         ("Normal Changes",            len(df_all[df_all["is_emergency"].str.strip().str.lower() != "yes"])),
         ("Sample Size Selected",      len(df_sample)),
-        ("Emergency (mandatory)",     len(df_sample[df_sample["selection_method"].str.contains("Emergency", na=False)])),
+        ("Emergency (targeted)",      len(df_sample[df_sample["selection_method"].str.contains("Emergency", na=False)])),
         ("Random Sample",             len(df_sample[df_sample["selection_method"].str.contains("Random", na=False)])),
         ("Pre-flagged Exceptions",    len(df_exceptions) if not df_exceptions.empty else 0),
         ("Sampling Method",           method),
@@ -543,7 +548,7 @@ def main():
     parser.add_argument("--output",      "-o", default="change_log_sample.xlsx",
                         help="Output Excel file path")
     parser.add_argument("--sample-size", "-n", type=int, default=None,
-                        help="Override sample size (default: AICPA-guided)")
+                        help="Engagement-specific sample size override (default: illustrative portfolio rule)")
     parser.add_argument("--seed",        "-s", type=int, default=42,
                         help="Random seed for reproducible sampling (default: 42)")
     parser.add_argument("--format",      "-f", choices=["xlsx", "csv"], default="xlsx",
@@ -571,14 +576,14 @@ def main():
 
     # Determine sample size
     sample_size = determine_sample_size(len(df), args.sample_size)
-    print(f"\n📐 Sampling Strategy (AICPA-guided):")
+    print(f"\n📐 Sampling Strategy (illustrative portfolio rule):")
     print(f"   Population   : {len(df)}")
     print(f"   Sample Size  : {sample_size}")
     print(f"   Random Seed  : {args.seed}")
 
     # Select sample
     df_sample, method = select_sample(df, sample_size, args.seed)
-    print(f"   Emergency    : {len(df_sample[df_sample['selection_method'].str.contains('Emergency', na=False)])} (mandatory 100%)")
+    print(f"   Emergency    : {len(df_sample[df_sample['selection_method'].str.contains('Emergency', na=False)])} (targeted 100% for this scenario)")
     print(f"   Random       : {len(df_sample[df_sample['selection_method'].str.contains('Random', na=False)])}")
 
     # Detect exceptions across full population

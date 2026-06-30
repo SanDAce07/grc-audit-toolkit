@@ -2,7 +2,7 @@
 Aging Report Analyzer
 =====================
 IT Audit Tool — GRC Toolkit
-Author: Sandesh | ULM Accounting & CIS
+Author: Sandesh Lama Tamang | ULM Accounting & CIS
 
 Purpose:
     Ingests an accounts receivable aging CSV, classifies balances into aging

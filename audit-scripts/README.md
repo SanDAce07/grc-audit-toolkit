@@ -14,10 +14,7 @@ Automation scripts to support IT audit and GRC work.
 ## Aging Report Analyzer
 [aging-report-analyzer.py](./aging-report-analyzer.py) reads AR aging data, classifies balances into aging buckets, highlights severe overdue exposure, and writes a formatted Excel workbook for audit review.
 
-## Coming Soon
-- SOC 2 gap assessment scorer
-- ITGC control effectiveness dashboard
-- Audit evidence tracker (Excel output)
+Future enhancements are tracked in the repository [roadmap](../ROADMAP.md).
 
 ## Requirements
 ```bash
@@ -32,3 +29,7 @@ From the repository root:
 python -m pip install -r requirements-dev.txt
 python -m pytest
 ```
+
+## Sampling Note
+
+`change-log-sampler.py` uses an illustrative portfolio default when `--sample-size` is omitted. It does not claim a fixed AICPA/PCAOB requirement. For engagement use, provide a sample size determined and documented under the applicable methodology.

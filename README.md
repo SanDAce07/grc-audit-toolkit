@@ -1,6 +1,15 @@
 # GRC & IT Audit Toolkit
 
-A structured repository for Governance, Risk, and Compliance (GRC) and IT Audit work.
+A demonstrable Governance, Risk, and Compliance (GRC) and IT Audit portfolio by **Sandesh Lama Tamang**. It combines runnable Python analyzers, workpaper outputs, risk and control templates, and automated tests.
+
+## Start Here
+
+| Tool | Demonstrates | Sample output |
+|---|---|---|
+| [Access Review Analyzer](./audit-scripts/access-review-analyzer.py) | Termination, privileged-access, SOD, and dormant-account checks | `sample-outputs/access_review_report.xlsx` |
+| [Change Log Sampler](./audit-scripts/change-log-sampler.py) | Reproducible selection, targeted emergency items, and exception testing | `sample-outputs/change_log_sample.xlsx` |
+| [Risk Score Calculator](./audit-scripts/risk-score-calculator.py) | Inherent/residual scoring, heat maps, and control-effectiveness review | `sample-outputs/risk_assessment.xlsx` |
+| [Aging Report Analyzer](./audit-scripts/aging-report-analyzer.py) | AR aging, positive-exposure concentration, and exception analysis | `sample-outputs/aging_report.xlsx` |
 
 ## Implemented Toolkit
 
@@ -19,7 +28,7 @@ A structured repository for Governance, Risk, and Compliance (GRC) and IT Audit 
 - [Aging Report Analyzer](./audit-scripts/aging-report-analyzer.py) - Produces an AR aging workpaper and exception summary
 - [Audit Scripts Overview](./audit-scripts/README.md) - Landing page for the full script catalog
 
-All four scripts run with generated sample data when `--input` is omitted, making the repository directly demonstrable after dependency installation.
+All four scripts run with synthetic sample data when `--input` is omitted. Generated recruiter-facing examples are available in [`sample-outputs`](./sample-outputs/README.md).
 
 ### Aging Report Analyzer
 [Open the script](./audit-scripts/aging-report-analyzer.py)
@@ -52,11 +61,7 @@ python -m pytest
 
 The automated tests cover invalid access-review dates, change-sampler workpaper classification, positive-AR concentration logic, and inherent-risk heat-map labeling.
 
-## Planned Additions
-
-- SOC 2 gap assessment scorer
-- ITGC control-effectiveness dashboard
-- Audit evidence tracker
+Future ideas are separated into [ROADMAP.md](./ROADMAP.md) so this landing page describes only implemented work.
 
 ## Frameworks Covered
 - COBIT 2019
@@ -64,6 +69,9 @@ The automated tests cover invalid access-review dates, change-sampler workpaper 
 - CISA IT Audit Standards
 - ITGC (IT General Controls)
 
-## Author
-Sandesh | Accounting & CIS | University of Louisiana Monroe
+## Methodology Note
 
+The Change Log Sampler's built-in sample sizes are transparent demonstration defaults, not AICPA or PCAOB sample-size requirements. A professional engagement must document its own methodology and assumptions; the script accepts an explicit `--sample-size` override.
+
+## Author
+Sandesh Lama Tamang | Accounting & CIS | University of Louisiana Monroe

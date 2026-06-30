@@ -4,6 +4,7 @@ __pycache__/
 .coverage
 htmlcov/
 *.xlsx
+!sample-outputs/*.xlsx
 *_full_change_log.csv
 *_selected_sample.csv
 *_sample_evidence.csv
