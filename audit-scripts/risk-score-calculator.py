@@ -2,7 +2,7 @@
 Risk Score Calculator
 =====================
 IT Audit Tool — GRC Toolkit
-Author: Sandesh | ULM Accounting & CIS
+Author: Sandesh Lama Tamang | ULM Accounting & CIS
 
 Purpose:
     Ingests a risk register CSV, calculates inherent and residual risk scores,

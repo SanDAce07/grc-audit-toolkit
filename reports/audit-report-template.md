@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-This report presents the results of the IT General Controls (ITGC) audit for [Entity Name] for the period [start] through [end]. The audit was conducted in accordance with [AICPA / PCAOB / CISA] standards.
+This report presents the results of the IT General Controls (ITGC) review for [Entity Name] for the period [start] through [end]. Document the applicable professional standard, internal methodology, and engagement scope here; remove this sentence if no external standard governs the work.
 
 **Overall Conclusion:** ☐ Effective ☐ Partially Effective ☐ Ineffective
 
@@ -56,4 +56,3 @@ The following systems and control areas were in scope:
 ---
 
 *This report is intended solely for the use of management and should not be distributed to third parties without prior written consent.*
-

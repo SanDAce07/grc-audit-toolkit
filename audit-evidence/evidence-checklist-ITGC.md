@@ -18,7 +18,7 @@
 |---|--------------|-------------|----------|---------------|
 | 2.1 | Change management policy | | ☐ | |
 | 2.2 | Change log / ticket listing for audit period | | ☐ | |
-| 2.3 | Sample change tickets with approvals (25 samples) | | ☐ | |
+| 2.3 | Change tickets selected under the documented sampling methodology | | ☐ | |
 | 2.4 | Emergency change documentation | | ☐ | |
 | 2.5 | Segregation of duties matrix for change process | | ☐ | |
 
@@ -47,4 +47,3 @@
 **Auditor:** _______________
 **Client/Entity:** _______________
 **Date Completed:** _______________
-
