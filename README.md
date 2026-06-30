@@ -67,6 +67,3 @@ The automated tests cover invalid access-review dates, change-sampler workpaper 
 ## Author
 Sandesh | Accounting & CIS | University of Louisiana Monroe
 
-## License
-
-This project is available under the [MIT License](./LICENSE).
