@@ -60,6 +60,12 @@ HIGH_RISK_SYSTEMS = [      # Systems where findings are automatically elevated
 ]
 
 
+def format_date(value):
+    """Return a safe ISO date string, leaving missing or invalid dates blank."""
+    parsed = pd.to_datetime(value, errors="coerce")
+    return "" if pd.isna(parsed) else parsed.strftime("%Y-%m-%d")
+
+
 # ─────────────────────────────────────────────
 # SAMPLE DATA GENERATOR
 # ─────────────────────────────────────────────
@@ -192,7 +198,7 @@ def analyze_access(df):
                 "Role":           row["role"],
                 "System":         row["system"],
                 "Access Level":   row["access_level"],
-                "Last Login":     row["last_login"].strftime("%Y-%m-%d"),
+                "Last Login":     format_date(row["last_login"]),
                 "Days Since Login": int(row["days_since_login"]),
                 "Status":         row["status"],
                 "MFA Enabled":    row["mfa_enabled"],
@@ -217,7 +223,7 @@ def analyze_access(df):
                 "Role":           row["role"],
                 "System":         row["system"],
                 "Access Level":   "Multiple",
-                "Last Login":     row["last_login"].strftime("%Y-%m-%d"),
+                "Last Login":     format_date(row["last_login"]),
                 "Days Since Login": int(row["days_since_login"]),
                 "Status":         row["status"],
                 "MFA Enabled":    row["mfa_enabled"],

@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+*.xlsx
+*_full_change_log.csv
+*_selected_sample.csv
+*_sample_evidence.csv
+*_exceptions.csv
+*_summary.csv
+*_invoice_aging.csv
+*_customer_summary.csv
+*_executive_summary.csv
+access_review_findings.csv
