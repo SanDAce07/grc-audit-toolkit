@@ -4,6 +4,14 @@ A demonstrable Governance, Risk, and Compliance (GRC) and IT Audit portfolio by 
 
 ## Start Here
 
+### Completed Portfolio Case Study
+
+| Case Study | Demonstrates | Finished artifacts |
+|---|---|---|
+| [Completed ITGC Audit Case Study](./case-study/README.md) | Scope definition, RCM, evidence register, access/change testing, findings, POA&M tracking, framework mapping, and final reporting | `case-study/bayou-cloud-itgc-audit-case-study.xlsx`, `case-study/final-audit-report.pdf` |
+
+### Audit Automation Toolkit
+
 | Tool | Demonstrates | Sample output |
 |---|---|---|
 | [Access Review Analyzer](./audit-scripts/access-review-analyzer.py) | Termination, privileged-access, SOD, and dormant-account checks | `sample-outputs/access_review_report.xlsx` |
@@ -13,6 +21,7 @@ A demonstrable Governance, Risk, and Compliance (GRC) and IT Audit portfolio by 
 
 ## Implemented Toolkit
 
+- [case-study](./case-study) - Completed ITGC audit case study with workpapers, findings, remediation tracker, and final report
 - [control-frameworks](./control-frameworks) - COBIT, SOC 2, and CISA control mappings
 - [risk-register](./risk-register) - Risk identification and scoring materials
 - [audit-evidence](./audit-evidence) - Evidence checklists and templates
@@ -64,10 +73,13 @@ The automated tests cover invalid access-review dates, change-sampler workpaper 
 Future ideas are separated into [ROADMAP.md](./ROADMAP.md) so this landing page describes only implemented work.
 
 ## Frameworks Covered
+- NIST SP 800-53 Rev. 5
+- NIST Cybersecurity Framework 2.0
 - COBIT 2019
 - SOC 2 (Trust Service Criteria)
 - CISA IT Audit Standards
 - ITGC (IT General Controls)
+- POA&M-style remediation tracking
 
 ## Methodology Note
 

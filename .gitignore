@@ -5,6 +5,11 @@ __pycache__/
 htmlcov/
 *.xlsx
 !sample-outputs/*.xlsx
+!case-study/*.xlsx
+node_modules/
+node_modules
+*.inspect.ndjson
+case-study/previews/pdf/
 *_full_change_log.csv
 *_selected_sample.csv
 *_sample_evidence.csv
