@@ -1,6 +1,16 @@
 # Toolkit Roadmap
 
-These are planned enhancements, not implemented deliverables.
+Completed portfolio upgrade:
+
+- Completed ITGC audit case study
+- Risk/control matrix
+- Evidence register
+- Findings register
+- POA&M-style remediation tracker
+- Final audit report in Markdown and PDF
+- Case-study workbook with executive summary, testing workpapers, and framework mapping
+
+Planned enhancements:
 
 - SOC 2 gap-assessment scorer
 - ITGC control-effectiveness dashboard
